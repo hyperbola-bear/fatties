@@ -8,6 +8,7 @@ past days are always compared with the targets that applied at the time.
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
@@ -19,7 +20,12 @@ from .targets import TARGET_KEYS
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,
+    password_hash TEXT
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS plans (
     id INTEGER PRIMARY KEY,
@@ -62,6 +68,9 @@ class Store:
         self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(_SCHEMA)
+        columns = {row["name"] for row in self.db.execute("PRAGMA table_info(people)")}
+        if "password_hash" not in columns:  # databases made before login existed
+            self.db.execute("ALTER TABLE people ADD COLUMN password_hash TEXT")
 
     def ensure_people(self, names: list[str]) -> None:
         with self.db:
@@ -78,6 +87,29 @@ class Store:
     def _person(self, row: sqlite3.Row) -> dict[str, Any]:
         plans = self.plans(row["id"])
         return {"id": row["id"], "name": row["name"], "plan": plans[-1] if plans else None}
+
+    def person_by_name(self, name: str) -> dict[str, Any] | None:
+        row = self.db.execute("SELECT * FROM people WHERE name = ? COLLATE NOCASE", (name.strip(),)).fetchone()
+        return self._person(row) if row else None
+
+    def password_hash(self, person_id: int) -> str | None:
+        row = self.db.execute("SELECT password_hash FROM people WHERE id = ?", (person_id,)).fetchone()
+        return row["password_hash"] if row else None
+
+    def set_password_hash(self, person_id: int, password_hash: str) -> None:
+        with self.db:
+            self.db.execute("UPDATE people SET password_hash = ? WHERE id = ?", (password_hash, person_id))
+
+    def anyone_has_password(self) -> bool:
+        return self.db.execute("SELECT 1 FROM people WHERE password_hash IS NOT NULL LIMIT 1").fetchone() is not None
+
+    def session_secret(self) -> str:
+        """A random key for signing login cookies, made once and kept in the database."""
+        with self.db:
+            self.db.execute(
+                "INSERT OR IGNORE INTO settings (key, value) VALUES ('session_secret', ?)", (secrets.token_hex(32),)
+            )
+        return self.db.execute("SELECT value FROM settings WHERE key = 'session_secret'").fetchone()["value"]
 
     def save_plan(self, person_id: int, starts_on: date, targets: dict[str, float], details: dict[str, Any]) -> None:
         """Start a plan on starts_on. A second save on the same day replaces the first."""

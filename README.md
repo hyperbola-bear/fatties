@@ -42,14 +42,45 @@ Needs Python 3.10 or newer.
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'
 cp .env.example .env    # then put your Anthropic API key in it
+.venv/bin/fatties set-password Polar     # asks for the password twice
+.venv/bin/fatties set-password Partner
 .venv/bin/fatties --port 8000
 ```
 
-Open http://localhost:8000. On a phone, use "Add to Home Screen". Phones only
-allow the camera on HTTPS, so for real use put it behind a reverse proxy with
-a certificate (Caddy does this in two lines).
+Open http://localhost:8000 and log in with a name from `FATTIES_PEOPLE` and
+its password. Set `FATTIES_ANALYZER=fake` to try the app without spending API
+credits.
 
-Set `FATTIES_ANALYZER=fake` to try the app without spending API credits.
+## Login
+
+Each person has their own password, set on the server with
+`fatties set-password NAME`. Run it again to change a password; that signs
+out every phone that logged in with the old one. Passwords are stored as
+salted scrypt hashes, never in plain text.
+
+- A login lasts 90 days in an HttpOnly, SameSite=Lax cookie, so phones rarely
+  ask again. Either person can still log a meal for the other.
+- Every `/api` route needs the cookie. The page itself holds no data.
+- After 10 wrong passwords for a name within 15 minutes, logins for that name
+  are refused until the 15 minutes pass.
+- The API docs pages (`/docs`, `/openapi.json`) are turned off.
+
+## Put it on the VPS
+
+Phones only allow the camera on HTTPS, and the login cookie is only marked
+Secure over HTTPS, so run it behind a reverse proxy with a certificate. With
+Caddy and a domain pointing at the VPS:
+
+```
+fatties.example.com {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Keep `fatties` on `127.0.0.1` (the default) so only Caddy can reach it.
+Uvicorn trusts the proxy headers from 127.0.0.1, so the app sees the request
+as HTTPS and sets the cookie as Secure. Then open the address on each phone,
+log in, and use "Add to Home Screen".
 
 ## Settings (`.env`)
 
@@ -89,8 +120,8 @@ US$0.03 per photo.
 
 ## Not done yet
 
-- **No login.** Anyone who can reach the server can read the log and spend
-  API credits. Add a password before putting it on a public address.
+- Someone who knows a name can lock that person out for 15 minutes by
+  guessing wrong 10 times. Fine for two people; revisit if it ever happens.
 - Accuracy is unmeasured. There is no set of reference meals yet.
 - No editing of a saved meal (delete and log it again), no manual entry
   without a photo, and no weight log.

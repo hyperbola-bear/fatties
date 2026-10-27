@@ -59,7 +59,9 @@ async function api(path, options = {}) {
   if (!response.ok) {
     const detail = body.detail;
     const message = typeof detail === "string" ? detail : detail?.message || (Array.isArray(detail) ? detail.map((d) => d.msg).join("; ") : `HTTP ${response.status}`);
-    throw new Error(message);
+    // A session that ran out or was signed out by a password change: back to the login screen.
+    if (response.status === 401 && path !== "/api/login") showLogin(detail);
+    throw Object.assign(new Error(message), { status: response.status, detail });
   }
   return body;
 }
@@ -766,12 +768,63 @@ function show(view) {
   if (load) Promise.resolve().then(load).catch((error) => toast(error.message));
 }
 
+// ---------- login ----------
+
+function showLogin(detail) {
+  hideTip();
+  $("who").hidden = true;
+  document.querySelector(".tabs").hidden = true;
+  for (const section of document.querySelectorAll(".view")) section.hidden = section.id !== "view-login";
+  const status = $("login-status");
+  if (detail?.passwords_set === false) {
+    status.className = "status";
+    status.textContent = "No passwords are set yet. On the server, run: fatties set-password NAME";
+  }
+  $("login-name").focus();
+}
+
+function setupLogin() {
+  $("login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const status = $("login-status");
+    status.className = "status";
+    status.textContent = "";
+    try {
+      await api("/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: $("login-name").value, password: $("login-password").value }),
+      });
+    } catch (error) {
+      status.className = "status error";
+      status.textContent = error.message;
+      return;
+    }
+    location.reload();
+  });
+  $("logout").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST" }).catch(() => null);
+    location.reload();
+  });
+}
+
 async function init() {
+  setupLogin();
+  let session;
+  try {
+    session = await api("/api/session");
+  } catch (error) {
+    if (error.status === 401) return;
+    throw error;
+  }
   state.config = await api("/api/config");
   state.people = await api("/api/people");
   state.day = state.week = state.config.today;
+  document.querySelector(".tabs").hidden = false;
+  $("signed-in-as").textContent = `Logged in as ${session.person.name}.`;
+  // Default to whoever logged in; either person can still log a meal for the other.
   const saved = Number(store("fatties.me"));
-  state.me = state.people.some((p) => p.id === saved) ? saved : state.people[0]?.id;
+  state.me = state.people.some((p) => p.id === saved) ? saved : session.person.id;
   renderWho();
   setupLog();
   for (const tab of document.querySelectorAll(".tabs button")) tab.addEventListener("click", () => show(tab.dataset.view));

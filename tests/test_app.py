@@ -14,7 +14,8 @@ from fatties.analysis import (
     check_photo,
     validate_analysis,
 )
-from fatties.app import create_app
+from fatties.app import create_app, set_password
+from fatties.auth import LoginLimiter, Sessions, hash_password, verify_password
 from fatties.config import Settings
 from fatties.store import Store
 from fatties.summary import week_summary
@@ -35,9 +36,29 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
+PASSWORD = "kopi-siew-dai"
+
+
+def make_app(tmp_path):
+    store = Store(tmp_path / "test.db")
+    store.ensure_people(["Polar", "Partner"])
+    set_password(store, "Polar", PASSWORD)
+    return create_app(settings(tmp_path), analyzer=FakeAnalyzer(), store=store), store
+
+
 @pytest.fixture
 def client(tmp_path):
-    return TestClient(create_app(settings(tmp_path), analyzer=FakeAnalyzer()))
+    """A client logged in as Polar."""
+    app, _ = make_app(tmp_path)
+    test_client = TestClient(app)
+    assert test_client.post("/api/login", json={"name": "Polar", "password": PASSWORD}).status_code == 200
+    return test_client
+
+
+@pytest.fixture
+def anonymous(tmp_path):
+    app, store = make_app(tmp_path)
+    return TestClient(app), store
 
 
 def item(**overrides):
@@ -299,6 +320,104 @@ def test_delete_meal(client):
 
 def test_index_serves(client):
     assert "Fatties" in client.get("/").text
+
+
+# ---------- login ----------
+
+
+def test_passwords_are_salted_and_checked():
+    first, second = hash_password(PASSWORD), hash_password(PASSWORD)
+    assert first != second and PASSWORD not in first
+    assert verify_password(PASSWORD, first)
+    assert not verify_password("wrong-password", first)
+    assert not verify_password(PASSWORD, None)
+    with pytest.raises(ValueError):
+        hash_password("short")
+
+
+def test_sessions_reject_tampering_and_expiry():
+    sessions = Sessions("secret")
+    token = sessions.issue(1, "hash", now=1000)
+    assert sessions.read(token, now=2000)["pid"] == 1
+    body, signature = token.split(".")
+    assert sessions.read(body.replace("e", "f", 1) + "." + signature, now=2000) is None
+    assert Sessions("other").read(token, now=2000) is None
+    assert sessions.read(token, now=1000 + 91 * 24 * 3600) is None
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("get", "/api/people"),
+        ("get", "/api/day"),
+        ("get", "/api/week"),
+        ("get", "/api/config"),
+        ("post", "/api/analyze"),
+        ("post", "/api/meals"),
+        ("post", "/api/plan/preview"),
+        ("put", "/api/people/1/plan"),
+        ("delete", "/api/meals/1"),
+    ],
+)
+def test_every_api_route_needs_a_login(anonymous, method, path):
+    client, _ = anonymous
+    assert getattr(client, method)(path).status_code == 401
+
+
+def test_the_page_and_docs(anonymous):
+    client, _ = anonymous
+    assert client.get("/").status_code == 200
+    assert client.get("/docs").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
+def test_login_session_and_logout(anonymous):
+    client, _ = anonymous
+    session = client.get("/api/session")
+    assert session.status_code == 401
+    assert session.json()["detail"]["passwords_set"] is True
+    assert client.post("/api/login", json={"name": "polar", "password": "wrong-password"}).status_code == 401
+    assert client.post("/api/login", json={"name": "Nobody", "password": PASSWORD}).status_code == 401
+    # Partner has no password yet, so cannot log in at all.
+    assert client.post("/api/login", json={"name": "Partner", "password": ""}).status_code == 422
+    login = client.post("/api/login", json={"name": " polar ", "password": PASSWORD})
+    assert login.status_code == 200
+    cookie = login.headers["set-cookie"].lower()
+    assert "httponly" in cookie and "samesite=lax" in cookie
+    assert client.get("/api/session").json()["person"]["name"] == "Polar"
+    assert client.get("/api/people").status_code == 200
+    assert client.post("/api/logout").status_code == 204
+    assert client.get("/api/people").status_code == 401
+
+
+def test_changing_a_password_signs_out_old_devices(anonymous):
+    client, store = anonymous
+    client.post("/api/login", json={"name": "Polar", "password": PASSWORD})
+    assert client.get("/api/people").status_code == 200
+    set_password(store, "Polar", "a-new-password")
+    assert client.get("/api/people").status_code == 401
+
+
+def test_too_many_wrong_passwords_are_refused(anonymous):
+    client, _ = anonymous
+    for _ in range(10):
+        assert client.post("/api/login", json={"name": "Polar", "password": "wrong-password"}).status_code == 401
+    assert client.post("/api/login", json={"name": "Polar", "password": PASSWORD}).status_code == 429
+
+
+def test_limiter_forgets_after_the_window():
+    limiter = LoginLimiter(limit=2, window=60)
+    limiter.failed("polar", now=0)
+    limiter.failed("polar", now=1)
+    assert limiter.blocked("polar", now=2)
+    assert not limiter.blocked("polar", now=62)
+
+
+def test_set_password_names_the_people_when_wrong(tmp_path):
+    store = Store(tmp_path / "p.db")
+    store.ensure_people(["Polar", "Partner"])
+    with pytest.raises(ValueError, match="Polar, Partner"):
+        set_password(store, "Bob", PASSWORD)
 
 
 # ---------- weekly comparison ----------

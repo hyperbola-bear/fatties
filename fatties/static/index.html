@@ -17,7 +17,7 @@
     <div class="who" id="who" role="radiogroup" aria-label="Who is logging"></div>
   </header>
 
-  <nav class="tabs" role="tablist">
+  <nav class="tabs" role="tablist" hidden>
     <button role="tab" data-view="log">Log</button>
     <button role="tab" data-view="day">Day</button>
     <button role="tab" data-view="week">Week</button>
@@ -25,6 +25,20 @@
   </nav>
 
   <main>
+    <section id="view-login" class="view" hidden>
+      <form id="login-form" class="card login">
+        <h2>Log in</h2>
+        <label>Name
+          <input id="login-name" name="username" autocomplete="username" autocapitalize="words" required>
+        </label>
+        <label>Password
+          <input id="login-password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button type="submit" class="primary">Log in</button>
+        <p class="status" id="login-status" role="status"></p>
+      </form>
+    </section>
+
     <section id="view-log" class="view" hidden>
       <form id="photo-form" class="card">
         <label class="photo-pick" id="photo-pick">
@@ -67,6 +81,7 @@
 
     <section id="view-targets" class="view" hidden>
       <div class="pair" id="target-people"></div>
+      <p class="signed-in"><span id="signed-in-as"></span> <button class="ghost" id="logout">Log out</button></p>
     </section>
   </main>
 

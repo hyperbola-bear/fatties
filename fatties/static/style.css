@@ -205,3 +205,6 @@ th { color: var(--ink-2); font-weight: 600; }
 .plan-preview { display: grid; gap: 10px; border-top: 1px solid var(--grid); padding-top: 12px; }
 .plan-result:empty { display: none; }
 .notes { margin: 0; padding-left: 18px; }
+
+.login { max-width: 420px; width: 100%; margin: 24px auto 0; }
+.signed-in { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--ink-2); font-size: 14px; margin: 0; }
