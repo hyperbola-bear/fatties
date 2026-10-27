@@ -22,7 +22,7 @@ from .analysis import MEAL_TYPES, AnalysisError, Analyzer, check_photo, make_ana
 from .config import Settings
 from .store import Store
 from .summary import day_summary, week_summary
-from .targets import suggest_targets
+from .targets import PlanError, build_plan
 
 STATIC = Path(__file__).with_name("static")
 MAX_NOTE_CHARS = 500
@@ -36,13 +36,21 @@ class Targets(BaseModel):
     sugar_g: float = Field(ge=0, le=1000)
 
 
-class TargetInputs(BaseModel):
-    weight_kg: float = Field(gt=20, lt=400)
+class PlanInputs(BaseModel):
+    weight_kg: float = Field(gt=30, lt=400)
+    target_weight_kg: float = Field(gt=30, lt=400)
     height_cm: float = Field(gt=100, lt=250)
     age: int = Field(ge=16, le=100)
     sex: Literal["male", "female"]
     activity: Literal["sedentary", "light", "moderate", "active"] = "moderate"
-    deficit_kcal: float = Field(default=500, ge=0, le=1000)
+    pace_kg_per_week: float = Field(default=0.5, gt=0, le=1.5)
+    target_date: date | None = None
+
+
+class NewPlan(BaseModel):
+    inputs: PlanInputs
+    # Targets as shown to the person, who may have adjusted them; omitted means use the worked-out ones.
+    targets: Targets | None = None
 
 
 class Item(BaseModel):
@@ -102,17 +110,32 @@ def create_app(settings: Settings, *, analyzer: Analyzer | None = None, store: S
     def people() -> list:
         return store.people()
 
-    @app.put("/api/people/{person_id}/targets")
-    def put_targets(person_id: int, targets: Targets) -> dict:
-        require_person(person_id)
-        if targets.sugar_g > targets.carbs_g:
-            raise HTTPException(400, "the sugar limit sits inside carbs, so it cannot be larger than carbs")
-        store.set_targets(person_id, targets.model_dump())
-        return store.person(person_id)
+    def make_plan(inputs: PlanInputs) -> dict:
+        try:
+            return build_plan(**inputs.model_dump(), start=today())
+        except PlanError as exc:
+            raise HTTPException(400, str(exc)) from None
 
-    @app.post("/api/targets/suggest")
-    def suggest(inputs: TargetInputs) -> dict:
-        return suggest_targets(**inputs.model_dump())
+    @app.post("/api/plan/preview")
+    def preview_plan(inputs: PlanInputs) -> dict:
+        return make_plan(inputs)
+
+    @app.put("/api/people/{person_id}/plan")
+    def start_plan(person_id: int, new: NewPlan) -> dict:
+        """Start a plan today. Earlier days keep the plan that applied to them."""
+        require_person(person_id)
+        plan = make_plan(new.inputs)
+        targets = plan["targets"]
+        details = plan["plan"]
+        if new.targets is not None:
+            chosen = new.targets.model_dump()
+            if chosen["sugar_g"] > chosen["carbs_g"]:
+                raise HTTPException(400, "the sugar limit sits inside carbs, so it cannot be larger than carbs")
+            if any(round(chosen[key]) != round(targets[key]) for key in targets):
+                details = {**details, "worked_out_targets": targets, "adjusted": True}
+                targets = chosen
+        store.save_plan(person_id, today(), targets, details)
+        return store.person(person_id)
 
     @app.post("/api/analyze")
     async def analyze(

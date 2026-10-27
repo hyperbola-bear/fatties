@@ -1,4 +1,7 @@
-"""Daily and weekly comparisons of what each person ate against their targets.
+"""Daily and weekly comparisons of what each person ate against their plan.
+
+Each day is compared with the plan in force that day. Days before a person's
+first plan have no target and are left out of every comparison.
 
 Weeks run Monday to Sunday. Averages are over days with at least one logged
 meal, so a day nobody logged does not look like a perfect zero-calorie day.
@@ -15,12 +18,35 @@ from .store import Store
 _EMPTY = {key: 0.0 for key in NUTRIENTS}
 
 
-def _diff(consumed: dict[str, float], target: dict[str, float], days: int = 1) -> dict[str, float]:
-    return {key: round(target[key] * days - consumed[key], 1) for key in NUTRIENTS}
+def plan_on(plans: list[dict[str, Any]], day: date) -> dict[str, Any] | None:
+    """The plan in force on day: the latest one that started on or before it."""
+    current = None
+    for plan in plans:
+        if plan["starts_on"] <= day.isoformat():
+            current = plan
+    return current
 
 
-def _percent(consumed: dict[str, float], target: dict[str, float], days: int = 1) -> dict[str, int]:
-    return {key: round(100 * consumed[key] / (target[key] * days)) if target[key] and days else 0 for key in NUTRIENTS}
+def plan_progress(plan: dict[str, Any] | None, day: date) -> dict[str, Any] | None:
+    if not plan:
+        return None
+    details = plan["details"]
+    return {
+        "starts_on": plan["starts_on"],
+        "day_number": (day - date.fromisoformat(plan["starts_on"])).days + 1,
+        "weight_kg": details.get("weight_kg"),
+        "target_weight_kg": details.get("target_weight_kg"),
+        "pace_kg_per_week": details.get("pace_kg_per_week"),
+        "finish_on": details.get("finish_on"),
+    }
+
+
+def _diff(consumed: dict[str, float], target: dict[str, float]) -> dict[str, float]:
+    return {key: round(target[key] - consumed[key], 1) for key in NUTRIENTS}
+
+
+def _percent(consumed: dict[str, float], target: dict[str, float]) -> dict[str, int]:
+    return {key: round(100 * consumed[key] / target[key]) if target[key] else 0 for key in NUTRIENTS}
 
 
 def _sum(days: list[dict[str, float]]) -> dict[str, float]:
@@ -38,14 +64,16 @@ def day_summary(store: Store, day: date) -> dict[str, Any]:
     for person in store.people():
         meals = store.meals_on(person["id"], day)
         consumed = _sum([meal["totals"] for meal in meals]) if meals else dict(_EMPTY)
-        target = person["targets"]
+        plan = plan_on(store.plans(person["id"]), day)
+        target = plan["targets"] if plan else None
         people.append(
             {
                 "person": person,
+                "plan": plan_progress(plan, day),
                 "consumed": consumed,
                 "target": target,
-                "remaining": _diff(consumed, target),
-                "percent": _percent(consumed, target),
+                "remaining": _diff(consumed, target) if target else None,
+                "percent": _percent(consumed, target) if target else None,
                 "meals": meals,
             }
         )
@@ -60,11 +88,9 @@ def week_summary(store: Store, day: date, today: date) -> dict[str, Any]:
     start = week_start(day)
     end = start + timedelta(days=6)
     prev_start = start - timedelta(days=7)
-    # Days of this week that have begun: all 7 for a past week, none for a future one.
-    elapsed = max(0, min(7, (today - start).days + 1))
     people = []
     for person in store.people():
-        target = person["targets"]
+        plans = store.plans(person["id"])
         logged = store.daily_totals(person["id"], start, end)
         prev_logged = store.daily_totals(person["id"], prev_start, start - timedelta(days=1))
         days = []
@@ -72,46 +98,57 @@ def week_summary(store: Store, day: date, today: date) -> dict[str, Any]:
             current = start + timedelta(days=offset)
             totals = logged.get(current.isoformat())
             consumed = {key: totals[key] for key in NUTRIENTS} if totals else dict(_EMPTY)
+            plan = plan_on(plans, current)
+            target = plan["targets"] if plan else None
             days.append(
                 {
                     "date": current.isoformat(),
                     "logged": totals is not None,
                     "meals": totals["meals"] if totals else 0,
                     "consumed": consumed,
-                    "percent": _percent(consumed, target),
-                    "over_kcal": bool(totals) and consumed["kcal"] > target["kcal"],
+                    "target": target,
+                    "percent": _percent(consumed, target) if target else None,
+                    "over_kcal": bool(totals and target) and consumed["kcal"] > target["kcal"],
+                    "protein_hit": bool(totals and target) and consumed["protein_g"] >= 0.9 * target["protein_g"],
                 }
             )
-        logged_days = [day["consumed"] for day in days if day["logged"]]
-        week_total = _sum(logged_days) if logged_days else dict(_EMPTY)
-        average = _average(logged_days)
+        # Only days under a plan count towards the comparison.
+        planned = [d for d in days if d["target"]]
+        begun = [d for d in planned if d["date"] <= today.isoformat()]
+        logged_planned = [d for d in planned if d["logged"]]
+        week_total = _sum([d["consumed"] for d in begun if d["logged"]]) if begun else dict(_EMPTY)
+        target_to_date = _sum([d["target"] for d in begun]) if begun else dict(_EMPTY)
+        average = _average([d["consumed"] for d in logged_planned])
+        average_target = _average([d["target"] for d in logged_planned])
+        all_logged = [d["consumed"] for d in days if d["logged"]]
+        week_average = _average(all_logged)
         prev_average = _average(list(prev_logged.values()))
+        last_day = min(end, today)
         people.append(
             {
                 "person": person,
-                "target": target,
+                "plan": plan_progress(plan_on(plans, last_day), last_day),
+                "target": plans[-1]["targets"] if plans else None,
                 "days": days,
-                "logged_days": len(logged_days),
-                "elapsed_days": elapsed,
-                # Finished days with nothing logged; today does not count until it is over.
-                "unlogged_past_days": sum(1 for day in days if not day["logged"] and day["date"] < today.isoformat()),
+                "logged_days": len(logged_planned),
+                "planned_days_begun": len(begun),
+                # Finished planned days with nothing logged; today does not count until it is over.
+                "unlogged_past_days": sum(1 for d in begun if not d["logged"] and d["date"] < today.isoformat()),
                 "total": week_total,
-                "target_to_date": {key: round(target[key] * elapsed, 1) for key in NUTRIENTS},
-                "remaining_to_date": _diff(week_total, target, elapsed),
-                "percent_to_date": _percent(week_total, target, elapsed),
+                "target_to_date": target_to_date,
+                "remaining_to_date": _diff(week_total, target_to_date),
                 "daily_average": average,
-                "average_percent": _percent(average, target),
+                "average_target": average_target,
+                "average_percent": _percent(average, average_target) if logged_planned else None,
                 "previous_week": {
                     "logged_days": len(prev_logged),
                     "daily_average": prev_average,
-                    "change": {key: round(average[key] - prev_average[key], 1) for key in NUTRIENTS}
-                    if prev_logged and logged_days
+                    "change": {key: round(week_average[key] - prev_average[key], 1) for key in NUTRIENTS}
+                    if prev_logged and all_logged
                     else None,
                 },
-                "days_over_kcal": sum(1 for day in days if day["over_kcal"]),
-                "days_protein_hit": sum(
-                    1 for day in days if day["logged"] and day["consumed"]["protein_g"] >= 0.9 * target["protein_g"]
-                ),
+                "days_over_kcal": sum(1 for d in days if d["over_kcal"]),
+                "days_protein_hit": sum(1 for d in days if d["protein_hit"]),
             }
         )
     return {"start": start.isoformat(), "end": end.isoformat(), "people": people}

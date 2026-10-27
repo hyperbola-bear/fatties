@@ -199,3 +199,9 @@ th { color: var(--ink-2); font-weight: 600; }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--axis); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: -2px; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+
+.plan-now { display: grid; gap: 2px; font-size: 14px; background: var(--page); border-radius: 10px; padding: 10px 12px; }
+.plan-now span { color: var(--ink-2); font-size: 13px; }
+.plan-preview { display: grid; gap: 10px; border-top: 1px solid var(--grid); padding-top: 12px; }
+.plan-result:empty { display: none; }
+.notes { margin: 0; padding-left: 18px; }

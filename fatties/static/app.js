@@ -162,14 +162,44 @@ async function loadDay() {
   $("day-people").replaceChildren(...data.people.map(dayCard));
 }
 
+function longDate(iso) {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
+function planLine(plan) {
+  if (!plan) return null;
+  const parts = [`Plan day ${plan.day_number}`];
+  if (plan.weight_kg && plan.target_weight_kg) parts.push(`${plan.weight_kg} → ${plan.target_weight_kg} kg`);
+  if (plan.finish_on) parts.push(`goal around ${longDate(plan.finish_on)}`);
+  return el("p", { class: "small" }, parts.join(" · "));
+}
+
+function noPlanText(person) {
+  return person.plan ? "This day is before the plan started." : "No plan yet. Enter your current and target weight in Plan.";
+}
+
 function dayCard(entry) {
   const { person, consumed, target, meals } = entry;
   const color = personColor(state.people.find((p) => p.id === person.id));
+  const head = el("div", { class: "person-head" }, el("span", { class: "dot", style: `background:${color}` }), el("h3", {}, person.name));
+  const mealList = meals.length ? el("ul", { class: "meals" }, meals.map(mealRow)) : el("p", { class: "empty" }, "Nothing logged.");
+  if (!target) {
+    return el(
+      "article",
+      { class: "card" },
+      head,
+      el("div", { class: "hero" }, el("strong", {}, fmt(consumed.kcal)), el("span", {}, "kcal eaten")),
+      el("p", { class: "small" }, NUTRIENTS.slice(1).map((n) => `${n.label} ${amount(consumed[n.key], n.unit)}`).join(" · ")),
+      el("p", { class: "small" }, noPlanText(person)),
+      mealList,
+    );
+  }
   const left = target.kcal - consumed.kcal;
   return el(
     "article",
     { class: "card" },
-    el("div", { class: "person-head" }, el("span", { class: "dot", style: `background:${color}` }), el("h3", {}, person.name)),
+    head,
+    planLine(entry.plan),
     el(
       "div",
       { class: "hero" },
@@ -177,12 +207,10 @@ function dayCard(entry) {
       el("span", {}, left < 0 ? `kcal over the ${fmt(target.kcal)} target` : `kcal left of ${fmt(target.kcal)}`),
     ),
     el("div", { class: "bars" }, NUTRIENTS.map((n) => progressRow(n, consumed[n.key], target[n.key], color))),
-    person.targets_set ? null : el("p", { class: "small" }, "Using default targets. Set real ones in Targets."),
-    meals.length
-      ? el("ul", { class: "meals" }, meals.map(mealRow))
-      : el("p", { class: "empty" }, "Nothing logged."),
+    mealList,
   );
 }
+
 
 function mealRow(meal) {
   const t = meal.totals;
@@ -219,8 +247,8 @@ async function loadWeek() {
 
 function weekChart(entry, color) {
   const W = 340, H = 170, top = 14, bottom = 22, left = 4, right = 40;
-  const target = entry.target.kcal;
-  const maxValue = Math.max(target * 1.15, ...entry.days.map((d) => d.consumed.kcal)) || 1;
+  const targets = entry.days.map((d) => (d.target ? d.target.kcal : null));
+  const maxValue = Math.max(1, ...targets.filter(Boolean).map((t) => t * 1.15), ...entry.days.map((d) => d.consumed.kcal));
   const y = (v) => top + (H - top - bottom) * (1 - v / maxValue);
   const slot = (W - left - right) / 7;
   const barW = Math.min(26, slot - 10);
@@ -233,24 +261,25 @@ function weekChart(entry, color) {
   entry.days.forEach((day, i) => {
     const cx = left + slot * i + slot / 2;
     const kcal = day.consumed.kcal;
+    const target = targets[i];
     const x = cx - barW / 2;
     if (kcal > 0) {
-      const within = Math.min(kcal, target);
+      const within = target ? Math.min(kcal, target) : kcal;
       // Rounded top only on the data end; the baseline stays square.
-      nodes.push(barPath(x, y(within), barW, base - y(within), kcal <= target ? 4 : 0, color));
-      if (kcal > target) nodes.push(barPath(x, y(kcal), barW, y(target) - y(kcal) - 2, 4, "var(--over)"));
+      nodes.push(barPath(x, y(within), barW, base - y(within), within === kcal ? 4 : 0, color));
+      if (target && kcal > target) nodes.push(barPath(x, y(kcal), barW, y(target) - y(kcal) - 2, 4, "var(--over)"));
     }
+    // Each day carries the target of the plan in force that day, so a new plan mid-week shows as a step.
+    if (target) nodes.push(svg("line", { class: "target", x1: left + slot * i + 2, x2: left + slot * (i + 1) - 2, y1: y(target), y2: y(target) }));
     const isToday = day.date === state.config.today;
-    nodes.push(
-      svg("text", { x: cx, y: H - 6, "text-anchor": "middle", style: isToday ? "font-weight:700;fill:var(--ink)" : "" }, WEEKDAYS[i]),
-    );
+    nodes.push(svg("text", { x: cx, y: H - 6, "text-anchor": "middle", style: isToday ? "font-weight:700;fill:var(--ink)" : "" }, WEEKDAYS[i]));
     const lines = [dateLabel(day.date)];
     if (day.logged) {
       const c = day.consumed;
-      lines.push(`${fmt(c.kcal)} kcal (${day.percent.kcal}% of target)`);
+      lines.push(target ? `${fmt(c.kcal)} kcal (${day.percent.kcal}% of ${fmt(target)})` : `${fmt(c.kcal)} kcal, before the plan`);
       lines.push(`C ${fmt(c.carbs_g)}g · P ${fmt(c.protein_g)}g · F ${fmt(c.fat_g)}g · S ${fmt(c.sugar_g)}g`);
       lines.push(`${day.meals} meal${day.meals === 1 ? "" : "s"} logged`);
-    } else lines.push("Nothing logged");
+    } else lines.push(target ? "Nothing logged" : "Before the plan");
     nodes.push(
       svg("rect", {
         class: "hit", x: left + slot * i, y: top, width: slot, height: base - top,
@@ -260,10 +289,11 @@ function weekChart(entry, color) {
     );
   });
   nodes.push(svg("line", { class: "base", x1: left, x2: W - right, y1: base, y2: base }));
-  nodes.push(svg("line", { class: "target", x1: left, x2: W - right, y1: y(target), y2: y(target) }));
-  nodes.push(svg("text", { class: "target-label", x: W - right + 4, y: y(target) + 4 }, fmt(target)));
+  const lastTarget = targets.filter(Boolean).pop();
+  if (lastTarget) nodes.push(svg("text", { class: "target-label", x: W - right + 4, y: y(targets[6] || lastTarget) + 4 }, fmt(lastTarget)));
   return svg("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Calories per day for ${entry.person.name}` }, nodes);
 }
+
 
 function barPath(x, yTop, w, h, r, fill) {
   if (h <= 0) return null;
@@ -286,10 +316,23 @@ function weekCard(entry) {
   const color = personColor(person);
   const avg = entry.daily_average;
   const change = entry.previous_week.change;
+  const hasPlanDays = entry.days.some((d) => d.target);
+  const target = entry.logged_days ? entry.average_target : entry.target;
+  let summary;
+  if (!hasPlanDays) summary = noPlanText(entry.person).replace("This day is", "This week is");
+  else if (!entry.planned_days_begun) summary = "This week has not started yet.";
+  else {
+    const rem = entry.remaining_to_date.kcal;
+    summary =
+      `Week so far: ${fmt(entry.total.kcal)} of ${fmt(entry.target_to_date.kcal)} kcal budgeted over ${entry.planned_days_begun} plan day${entry.planned_days_begun === 1 ? "" : "s"}. ` +
+      (rem >= 0 ? `${fmt(rem)} kcal under.` : `${fmt(-rem)} kcal over.`) +
+      (entry.unlogged_past_days ? ` ${entry.unlogged_past_days} past day${entry.unlogged_past_days === 1 ? "" : "s"} with nothing logged, so the total looks lower than it is.` : "");
+  }
   return el(
     "article",
     { class: "card" },
     el("div", { class: "person-head" }, el("span", { class: "dot", style: `background:${color}` }), el("h3", {}, entry.person.name)),
+    planLine(entry.plan),
     el(
       "div",
       { class: "legend" },
@@ -298,47 +341,45 @@ function weekCard(entry) {
       el("span", {}, el("span", { class: "swatch-line" }), "daily target"),
     ),
     weekChart(entry, color),
-    el(
-      "div",
-      { class: "stats" },
-      el("div", {}, el("strong", {}, entry.logged_days ? fmt(avg.kcal) : "–"), el("span", {}, `avg kcal/day (target ${fmt(entry.target.kcal)})`)),
-      el("div", {}, el("strong", { class: entry.days_over_kcal ? "over-text" : null }, `${entry.days_over_kcal}`), el("span", {}, `of ${entry.logged_days} logged days over`)),
-      el("div", {}, el("strong", {}, `${entry.days_protein_hit}`), el("span", {}, "days protein goal hit")),
-    ),
-    el(
-      "div",
-      { class: "table-wrap" },
-      el(
-        "table",
-        {},
-        el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Avg/day"), el("th", {}, "Target"), el("th", {}, "%"), el("th", {}, "vs last wk"))),
-        el(
-          "tbody",
-          {},
-          NUTRIENTS.map((n) =>
+    hasPlanDays
+      ? el(
+          "div",
+          { class: "stats" },
+          el("div", {}, el("strong", {}, entry.logged_days ? fmt(avg.kcal) : "–"), el("span", {}, target ? `avg kcal/day (target ${fmt(target.kcal)})` : "avg kcal/day")),
+          el("div", {}, el("strong", { class: entry.days_over_kcal ? "over-text" : null }, `${entry.days_over_kcal}`), el("span", {}, `of ${entry.logged_days} logged days over`)),
+          el("div", {}, el("strong", {}, `${entry.days_protein_hit}`), el("span", {}, "days protein goal hit")),
+        )
+      : null,
+    hasPlanDays
+      ? el(
+          "div",
+          { class: "table-wrap" },
+          el(
+            "table",
+            {},
+            el("thead", {}, el("tr", {}, el("th", {}, ""), el("th", {}, "Avg/day"), el("th", {}, "Target"), el("th", {}, "%"), el("th", {}, "vs last wk"))),
             el(
-              "tr",
+              "tbody",
               {},
-              el("td", {}, n.label),
-              el("td", {}, entry.logged_days ? amount(avg[n.key], n.unit) : "–"),
-              el("td", {}, amount(entry.target[n.key], n.unit)),
-              el("td", {}, entry.logged_days ? `${entry.average_percent[n.key]}%` : "–"),
-              el("td", {}, delta(change ? change[n.key] : null, n)),
+              NUTRIENTS.map((n) =>
+                el(
+                  "tr",
+                  {},
+                  el("td", {}, n.label),
+                  el("td", {}, entry.logged_days ? amount(avg[n.key], n.unit) : "–"),
+                  el("td", {}, target ? amount(target[n.key], n.unit) : "–"),
+                  el("td", {}, entry.average_percent ? `${entry.average_percent[n.key]}%` : "–"),
+                  el("td", {}, delta(change ? change[n.key] : null, n)),
+                ),
+              ),
             ),
           ),
-        ),
-      ),
-    ),
+        )
+      : null,
     el(
       "p",
       { class: "small" },
-      entry.elapsed_days
-        ? `Week so far: ${fmt(entry.total.kcal)} of ${fmt(entry.target_to_date.kcal)} kcal budgeted through ${entry.elapsed_days === 7 ? "Sunday" : "today"}. ` +
-            (entry.remaining_to_date.kcal >= 0
-              ? `${fmt(entry.remaining_to_date.kcal)} kcal under.`
-              : `${fmt(-entry.remaining_to_date.kcal)} kcal over.`) +
-            (entry.unlogged_past_days ? ` ${entry.unlogged_past_days} past day${entry.unlogged_past_days === 1 ? "" : "s"} with nothing logged, so the total looks lower than it is.` : "")
-        : "This week has not started yet.",
+      summary,
       entry.previous_week.logged_days ? ` Last week averaged ${fmt(entry.previous_week.daily_average.kcal)} kcal/day.` : "",
     ),
   );
@@ -366,10 +407,11 @@ function renderCompare(data) {
   );
   $("week-compare").replaceChildren(
     el("h3", {}, "Side by side"),
-    el("p", { class: "small" }, "Average per logged day, and the share of each person's own target."),
+    el("p", { class: "small" }, "Average per logged plan day, and the share of each person's own target."),
     el("div", { class: "table-wrap" }, el("table", {}, el("thead", {}, head), el("tbody", {}, rows))),
   );
 }
+
 
 // ---------- log ----------
 
@@ -576,79 +618,141 @@ async function saveMeal() {
   show("day");
 }
 
-// ---------- targets ----------
+// ---------- plan ----------
 
-function targetsCard(person) {
+const PACES = [
+  [0.25, "Gentle, 0.25 kg a week"],
+  [0.5, "Steady, 0.5 kg a week"],
+  [0.75, "Faster, 0.75 kg a week"],
+  [1, "Fast, 1 kg a week"],
+];
+const EXERCISE = [
+  ["sedentary", "Little exercise"],
+  ["light", "1–3 times a week"],
+  ["moderate", "3–5 times a week"],
+  ["active", "6–7 times a week"],
+];
+
+function options(pairs, selected) {
+  return pairs.map(([value, label]) => el("option", { value, selected: String(value) === String(selected) }, label));
+}
+
+function currentPlan(person) {
+  const plan = person.plan;
+  if (!plan) return el("p", { class: "small" }, "No plan yet. Fill this in and start one; the Day and Week comparisons begin from that day.");
+  const d = plan.details;
+  const t = plan.targets;
+  return el(
+    "div",
+    { class: "plan-now" },
+    el("strong", {}, `Plan since ${longDate(plan.starts_on)}`),
+    el("span", {}, `${d.weight_kg} → ${d.target_weight_kg} kg at about ${d.pace_kg_per_week} kg a week, goal around ${longDate(d.finish_on)}.`),
+    el("span", {}, `Daily: ${fmt(t.kcal)} kcal · carbs ${fmt(t.carbs_g)}g · protein ${fmt(t.protein_g)}g · fat ${fmt(t.fat_g)}g · sugar under ${fmt(t.sugar_g)}g${d.adjusted ? " (adjusted by hand)" : ""}.`),
+  );
+}
+
+function planCard(person) {
   const color = personColor(person);
-  const inputs = {};
+  const last = person.plan?.details || {};
   const status = el("p", { class: "status", role: "status" });
-  const field = (n) => {
-    inputs[n.key] = el("input", { type: "number", inputmode: "decimal", min: 0, step: 1, value: Math.round(person.targets[n.key]) });
-    return el("label", {}, `${n.label}${n.unit ? " (g)" : " (kcal)"}${n.key === "sugar_g" ? ", limit" : n.goal ? ", goal" : ""}`, inputs[n.key]);
+  const result = el("div", { class: "plan-result" });
+  const number = (value, attrs = {}) => el("input", { type: "number", inputmode: "decimal", value: value ?? "", ...attrs });
+  const form = {
+    weight_kg: number(last.weight_kg, { step: 0.1, placeholder: "kg" }),
+    target_weight_kg: number(last.target_weight_kg, { step: 0.1, placeholder: "kg" }),
+    height_cm: number(last.height_cm, { step: 1, placeholder: "cm" }),
+    age: number(last.age, { step: 1, inputmode: "numeric" }),
+    sex: el("select", {}, options([["female", "Female"], ["male", "Male"]], last.sex)),
+    activity: el("select", {}, options(EXERCISE, last.activity || "moderate")),
+    pace_kg_per_week: el("select", {}, options(PACES, last.target_date ? 0.5 : last.pace_kg_per_week || 0.5)),
+    target_date: el("input", { type: "date", value: last.target_date || "", min: shiftDate(state.config.today, 7) }),
   };
-  const calc = {
-    weight_kg: el("input", { type: "number", inputmode: "decimal", step: 0.1, placeholder: "kg" }),
-    height_cm: el("input", { type: "number", inputmode: "decimal", step: 1, placeholder: "cm" }),
-    age: el("input", { type: "number", inputmode: "numeric", step: 1 }),
-    sex: el("select", {}, el("option", { value: "female" }, "Female"), el("option", { value: "male" }, "Male")),
-    activity: el(
-      "select",
-      {},
-      el("option", { value: "sedentary" }, "Little exercise"),
-      el("option", { value: "light" }, "1–3 times a week"),
-      el("option", { value: "moderate", selected: true }, "3–5 times a week"),
-      el("option", { value: "active" }, "6–7 times a week"),
-    ),
-    deficit_kcal: el(
-      "select",
-      {},
-      el("option", { value: 250 }, "Gentle (−250 kcal)"),
-      el("option", { value: 500, selected: true }, "Steady (−500 kcal)"),
-      el("option", { value: 750 }, "Fast (−750 kcal)"),
-    ),
-  };
-  const suggest = async () => {
-    status.className = "status";
-    try {
-      const body = Object.fromEntries(Object.entries(calc).map(([k, node]) => [k, node.value]));
-      const result = await api("/api/targets/suggest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      for (const n of NUTRIENTS) inputs[n.key].value = result[n.key];
-      status.textContent = `Maintenance is about ${fmt(result.maintenance_kcal)} kcal. Filled in below; press Save to keep.`;
-    } catch (error) {
-      status.className = "status error";
-      status.textContent = error.message;
+  const inputs = () => {
+    const body = {};
+    for (const [key, node] of Object.entries(form)) {
+      if (node.value === "") continue;
+      body[key] = ["sex", "activity", "target_date"].includes(key) ? node.value : Number(node.value);
     }
+    return body;
   };
-  const save = async () => {
+  const fail = (error) => {
+    status.className = "status error";
+    status.textContent = error.message;
+  };
+
+  const workOut = async () => {
     status.className = "status";
+    status.textContent = "";
+    let preview;
     try {
-      const body = Object.fromEntries(NUTRIENTS.map((n) => [n.key, Number(inputs[n.key].value)]));
-      const updated = await api(`/api/people/${person.id}/targets`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      Object.assign(person, updated);
-      status.textContent = "Saved.";
+      preview = await api("/api/plan/preview", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(inputs()) });
     } catch (error) {
-      status.className = "status error";
-      status.textContent = error.message;
+      result.replaceChildren();
+      return fail(error);
     }
+    const p = preview.plan;
+    const fields = {};
+    const field = (n) => {
+      fields[n.key] = el("input", { type: "number", inputmode: "numeric", min: 0, step: 1, value: preview.targets[n.key] });
+      return el("label", { class: "grow", style: "flex-basis:96px" }, `${n.label}${n.unit ? " g" : " kcal"}${n.goal ? ", at least" : ", at most"}`, fields[n.key]);
+    };
+    const start = async () => {
+      const targets = Object.fromEntries(NUTRIENTS.map((n) => [n.key, Number(fields[n.key].value)]));
+      try {
+        const updated = await api(`/api/people/${person.id}/plan`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ inputs: inputs(), targets }),
+        });
+        Object.assign(person, updated);
+      } catch (error) {
+        return fail(error);
+      }
+      toast(`${person.name}'s plan starts today`);
+      loadTargets();
+    };
+    result.replaceChildren(
+      el(
+        "div",
+        { class: "plan-preview" },
+        el("div", { class: "hero" }, el("strong", {}, fmt(preview.targets.kcal)), el("span", {}, "kcal a day")),
+        el(
+          "p",
+          { class: "small" },
+          `You burn about ${fmt(p.maintenance_kcal)} kcal a day. Eating ${fmt(p.deficit_kcal)} less loses about ${p.pace_kg_per_week} kg a week, ` +
+            `so ${p.weight_kg} → ${p.target_weight_kg} kg takes about ${Math.ceil(p.weeks)} weeks: around ${longDate(p.finish_on)}.`,
+        ),
+        p.notes.length ? el("ul", { class: "small notes" }, p.notes.map((note) => el("li", {}, note))) : null,
+        el("p", { class: "small" }, "Daily targets. You can adjust them before starting."),
+        el("div", { class: "row" }, NUTRIENTS.map(field)),
+        el("button", { class: "primary", onclick: start }, person.plan ? "Start new plan from today" : "Start plan today"),
+        person.plan ? el("p", { class: "small" }, "Days before today keep the old plan's targets.") : null,
+      ),
+    );
+    result.scrollIntoView({ behavior: "smooth", block: "nearest" });
   };
+
+  const label = (text, node, extra = {}) => el("label", { class: "grow", ...extra }, text, node);
   return el(
     "article",
     { class: "card" },
     el("div", { class: "person-head" }, el("span", { class: "dot", style: `background:${color}` }), el("h3", {}, person.name)),
-    el("p", { class: "small" }, "Work out a starting point from body stats, or type targets directly."),
-    el("div", { class: "row" }, ...["weight_kg", "height_cm", "age"].map((k) => el("label", { class: "grow" }, { weight_kg: "Weight (kg)", height_cm: "Height (cm)", age: "Age" }[k], calc[k]))),
-    el("div", { class: "row" }, el("label", { class: "grow" }, "Sex", calc.sex), el("label", { class: "grow" }, "Exercise", calc.activity), el("label", { class: "grow" }, "Pace", calc.deficit_kcal)),
-    el("button", { class: "ghost", onclick: suggest }, "Suggest targets"),
-    el("div", { class: "row" }, NUTRIENTS.map((n) => el("div", { class: "grow", style: "flex-basis:120px" }, field(n)))),
-    el("button", { class: "primary", onclick: save }, "Save targets"),
+    currentPlan(person),
+    el("div", { class: "row" }, label("Current weight (kg)", form.weight_kg), label("Target weight (kg)", form.target_weight_kg)),
+    el("div", { class: "row" }, label("Height (cm)", form.height_cm), label("Age", form.age), label("Sex", form.sex)),
+    el("div", { class: "row" }, label("Exercise", form.activity), label("Pace", form.pace_kg_per_week)),
+    label("Reach it by (optional, replaces pace)", form.target_date),
+    el("button", { class: "ghost", onclick: workOut }, "Work out my targets"),
     status,
-    el("p", { class: "small" }, "Protein about 1.8 g per kg, fat about 27% of calories, sugar under 10% (WHO), carbs the rest. A starting point, not medical advice."),
+    result,
+    el("p", { class: "small" }, "Protein 1.8 g per kg of target weight, fat about 27% of calories, sugar under 10% (WHO), carbs the rest. Pace is capped at 1% of body weight a week. A starting point, not medical advice."),
   );
 }
 
 function loadTargets() {
-  $("target-people").replaceChildren(...state.people.map(targetsCard));
+  $("target-people").replaceChildren(...state.people.map(planCard));
 }
+
 
 // ---------- navigation ----------
 

@@ -1,4 +1,9 @@
-"""SQLite storage for people, their targets and their meals. Photos are never stored."""
+"""SQLite storage for people, their plans and their meals. Photos are never stored.
+
+A plan holds daily targets from the day it is saved. Saving a new plan later
+starts a new one from that day and keeps the old one for the days before, so
+past days are always compared with the targets that applied at the time.
+"""
 
 from __future__ import annotations
 
@@ -9,18 +14,25 @@ from pathlib import Path
 from typing import Any
 
 from .analysis import NUTRIENTS, totals
-from .targets import DEFAULT_TARGETS, TARGET_KEYS
+from .targets import TARGET_KEYS
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS people (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL UNIQUE
+);
+CREATE TABLE IF NOT EXISTS plans (
+    id INTEGER PRIMARY KEY,
+    person_id INTEGER NOT NULL REFERENCES people(id),
+    starts_on TEXT NOT NULL,
     kcal REAL NOT NULL,
     carbs_g REAL NOT NULL,
     protein_g REAL NOT NULL,
     fat_g REAL NOT NULL,
     sugar_g REAL NOT NULL,
-    targets_set INTEGER NOT NULL DEFAULT 0
+    details_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (person_id, starts_on)
 );
 CREATE TABLE IF NOT EXISTS meals (
     id INTEGER PRIMARY KEY,
@@ -54,24 +66,45 @@ class Store:
     def ensure_people(self, names: list[str]) -> None:
         with self.db:
             for name in names:
-                self.db.execute(
-                    "INSERT OR IGNORE INTO people (name, kcal, carbs_g, protein_g, fat_g, sugar_g) VALUES (?, ?, ?, ?, ?, ?)",
-                    (name, *(DEFAULT_TARGETS[key] for key in TARGET_KEYS)),
-                )
+                self.db.execute("INSERT OR IGNORE INTO people (name) VALUES (?)", (name,))
 
     def people(self) -> list[dict[str, Any]]:
-        return [_person(row) for row in self.db.execute("SELECT * FROM people ORDER BY id")]
+        return [self._person(row) for row in self.db.execute("SELECT * FROM people ORDER BY id")]
 
     def person(self, person_id: int) -> dict[str, Any] | None:
         row = self.db.execute("SELECT * FROM people WHERE id = ?", (person_id,)).fetchone()
-        return _person(row) if row else None
+        return self._person(row) if row else None
 
-    def set_targets(self, person_id: int, targets: dict[str, float]) -> None:
+    def _person(self, row: sqlite3.Row) -> dict[str, Any]:
+        plans = self.plans(row["id"])
+        return {"id": row["id"], "name": row["name"], "plan": plans[-1] if plans else None}
+
+    def save_plan(self, person_id: int, starts_on: date, targets: dict[str, float], details: dict[str, Any]) -> None:
+        """Start a plan on starts_on. A second save on the same day replaces the first."""
         with self.db:
             self.db.execute(
-                "UPDATE people SET kcal = ?, carbs_g = ?, protein_g = ?, fat_g = ?, sugar_g = ?, targets_set = 1 WHERE id = ?",
-                (*(float(targets[key]) for key in TARGET_KEYS), person_id),
+                "INSERT OR REPLACE INTO plans (person_id, starts_on, kcal, carbs_g, protein_g, fat_g, sugar_g,"
+                " details_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    person_id,
+                    starts_on.isoformat(),
+                    *(float(targets[key]) for key in TARGET_KEYS),
+                    json.dumps(details),
+                    datetime.now().astimezone().isoformat(timespec="seconds"),
+                ),
             )
+
+    def plans(self, person_id: int) -> list[dict[str, Any]]:
+        """Every plan for a person, oldest first."""
+        rows = self.db.execute("SELECT * FROM plans WHERE person_id = ? ORDER BY starts_on", (person_id,))
+        return [
+            {
+                "starts_on": row["starts_on"],
+                "targets": {key: row[key] for key in TARGET_KEYS},
+                "details": json.loads(row["details_json"]),
+            }
+            for row in rows
+        ]
 
     def add_meal(
         self,
@@ -130,15 +163,6 @@ class Store:
         return {
             row["eaten_on"]: {"meals": row["meals"], **{key: round(row[key], 1) for key in NUTRIENTS}} for row in rows
         }
-
-
-def _person(row: sqlite3.Row) -> dict[str, Any]:
-    return {
-        "id": row["id"],
-        "name": row["name"],
-        "targets": {key: row[key] for key in TARGET_KEYS},
-        "targets_set": bool(row["targets_set"]),
-    }
 
 
 def _meal(row: sqlite3.Row) -> dict[str, Any]:

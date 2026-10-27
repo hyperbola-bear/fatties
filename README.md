@@ -12,14 +12,25 @@ each person ate with their own daily and weekly targets.
   save it for whoever ate it. Photos are never stored, only the numbers.
 - **Day**: calories and each macro against the target for both people, with
   what is left, and the meals logged that day.
-- **Week** (Monday to Sunday): calories per day against the target line,
+- **Week** (Monday to Sunday): calories per day against each day's target,
   average per logged day, days over target, days the protein goal was hit,
   each macro against the target and against last week, and a side-by-side
   table of both people.
-- **Targets**: type targets in, or work them out from weight, height, age,
-  sex, exercise and pace (Mifflin-St Jeor minus a deficit; protein about
-  1.8 g/kg, fat about 27 percent of calories, sugar under 10 percent, carbs the
-  rest). These are starting points, not medical advice.
+- **Plan**: enter current weight, target weight, height, age, sex and how
+  often you exercise, then pick a pace (0.25 to 1 kg a week) or a date to reach
+  the target by. The app works out daily calories, carbs, protein, fat and
+  sugar, and when you will reach the target. You can adjust the numbers, then
+  start the plan. It starts that day: Day and Week compare against it from
+  then on, and days before it have no target. Starting a new plan later (say,
+  with your new weight) keeps the old targets for the days before.
+
+How the plan is worked out: maintenance calories from Mifflin-St Jeor at your
+exercise level, minus about 7,700 kcal per kg you want to lose each week.
+Protein is 1.8 g per kg of target weight, fat about 27 percent of calories,
+sugar under 10 percent (WHO), and carbs the rest. Pace is capped at 1 percent
+of body weight a week, and calories never go below 1,500 (men) or 1,200
+(women). If a target date needs more than that, the plan says so and gives a
+realistic date. These are starting points, not medical advice.
 
 Protein is treated as a goal (more is fine). Calories, carbs, fat and sugar
 are limits.
