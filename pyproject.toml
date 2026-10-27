@@ -1,0 +1,35 @@
+[project]
+name = "fatties"
+version = "0.1.0"
+description = "Two-person meal photo tracker: Claude estimates calories and macros, the app compares them with daily and weekly targets."
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.70",
+    "fastapi>=0.110",
+    "python-multipart>=0.0.9",
+    "uvicorn>=0.29",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["fatties*"]
+
+[tool.setuptools.package-data]
+fatties = ["static/*"]
+
+[tool.ruff]
+line-length = 120
+
+[project.scripts]
+fatties = "fatties.app:main"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# FastAPI declares form fields and uploads as call defaults.
+ignore = ["B008", "E501"]  # the formatter owns line length
