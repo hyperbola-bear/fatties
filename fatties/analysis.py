@@ -302,11 +302,12 @@ def kcal_from_macros(carbs_g: float, protein_g: float, fat_g: float) -> float:
     return 4 * carbs_g + 4 * protein_g + 9 * fat_g
 
 
-def validate_analysis(raw: Any) -> dict[str, Any]:
+def validate_analysis(raw: Any, *, fill_missing_calories: bool = True) -> dict[str, Any]:
     """Clean a model answer into what the app stores. Raises AnalysisError if it is unusable.
 
     Negative numbers clamp to 0, sugar above carbs is capped at carbs, and a 0
-    kcal item with real macros gets 4/4/9 calories. Each fix adds a warning.
+    kcal item with real macros gets 4/4/9 calories unless this fallback is
+    disabled for explicit user corrections. Each fix adds a warning.
     """
     if not isinstance(raw, dict):
         raise AnalysisError("analysis must be a JSON object", retryable=True)
@@ -333,7 +334,7 @@ def validate_analysis(raw: Any) -> dict[str, Any]:
         if cleaned["sugar_g"] > cleaned["carbs_g"]:
             warnings.append(f"{name}: sugar was above carbs, capped at carbs")
             cleaned["sugar_g"] = cleaned["carbs_g"]
-        if cleaned["kcal"] == 0 and (cleaned["carbs_g"] or cleaned["protein_g"] or cleaned["fat_g"]):
+        if fill_missing_calories and cleaned["kcal"] == 0 and (cleaned["carbs_g"] or cleaned["protein_g"] or cleaned["fat_g"]):
             cleaned["kcal"] = round(kcal_from_macros(cleaned["carbs_g"], cleaned["protein_g"], cleaned["fat_g"]), 1)
             warnings.append(f"{name}: no calories given, worked out from the macros")
         items.append(cleaned)

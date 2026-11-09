@@ -9,13 +9,17 @@ each person ate with their own daily and weekly targets.
 
 - **Log**: take a photo, add an optional note ("ate half", "kopi siew dai"),
   and get an estimate per item. Scale any item (x0.5 to x2) or remove it, then
-  save it for whoever ate it. Photos are never stored, only the numbers.
-- **Day**: calories and each macro against the target for both people, with
-  what is left, and the meals logged that day.
-- **Week** (Monday to Sunday): calories per day against each day's target,
-  average per logged day, days over target, days the protein goal was hit,
-  each macro against the target and against last week, and a side-by-side
-  table of both people.
+  save it to your own account. The whole meal and individual foods have portion
+  sliders and shortcut buttons. Expand a food to correct carbs, protein, fat,
+  and sugar with sliders or exact gram inputs. Calories update automatically;
+  portion changes preserve corrections proportionally. Reset restores the estimate.
+  Photos are retained only when you save a meal, in private storage.
+- **Track**: one dropdown for Day, Week (Monday–Sunday), Month, and Year,
+  previous/next navigation and a date picker. Both partners' history remains
+  visible. Daily/monthly charts, averages per logged day, logging coverage,
+  previous-period comparisons and plan-day budgets distinguish missing logs
+  from zero intake. Targets follow the plan active on each date. Year charts
+  show monthly averages per logged day.
 - **Plan**: enter current weight, target weight, height, age, sex and how
   often you exercise, then pick a pace (0.25 to 1 kg a week) or a date to reach
   the target by. The app works out daily calories, carbs, protein, fat and
@@ -23,6 +27,14 @@ each person ate with their own daily and weekly targets.
   start the plan. It starts that day: Day and Week compare against it from
   then on, and days before it have no target. Starting a new plan later (say,
   with your new weight) keeps the old targets for the days before.
+- **Widget**: connect the free Scriptable iPhone app to show your partner's
+  newest saved meal, photo, calories and logging time on the Home Screen.
+  Tap to open the meal's web page. Fatties remains a web app; there is no
+  Fatties native build or Apple Developer subscription. Setup is in the
+  Widget tab and [the setup guide](docs/widget-setup.md).
+
+Each account can create/delete only its own meals and change only its own
+plan. Your partner's plan and history are read-only, enforced by the API.
 
 How the plan is worked out: maintenance calories from Mifflin-St Jeor at your
 exercise level, minus about 7,700 kcal per kg you want to lose each week.
@@ -58,9 +70,14 @@ Each person has their own password, set on the server with
 out every phone that logged in with the old one. Passwords are stored as
 salted scrypt hashes, never in plain text.
 
-- A login lasts 90 days in an HttpOnly, SameSite=Lax cookie, so phones rarely
-  ask again. Either person can still log a meal for the other.
-- Every `/api` route needs the cookie. The page itself holds no data.
+- A login lasts 90 days in an HttpOnly, SameSite=Lax cookie.
+- Browser `/api` routes need the cookie, apart from login/logout/session.
+  The two dedicated widget read routes instead require a scoped bearer token;
+  widget tokens cannot read the rest of the API or modify anything.
+- Widget connections expire after 90 days. Logging out, changing your password,
+  or disconnecting widgets revokes your connections without affecting your
+  partner's. Reconnect from the Widget tab. Tokens are hashed in SQLite and
+  stored in Scriptable's Keychain, never embedded in the downloadable script.
 - After 10 wrong passwords for a name within 15 minutes, logins for that name
   are refused until the 15 minutes pass.
 - The API docs pages (`/docs`, `/openapi.json`) are turned off.
@@ -82,6 +99,16 @@ Uvicorn trusts the proxy headers from 127.0.0.1, so the app sees the request
 as HTTPS and sets the cookie as Secure. Then open the address on each phone,
 log in, and use "Add to Home Screen".
 
+Run one server worker (the default). Before upgrading an existing installation,
+stop the server and back up its SQLite database and existing photo directory.
+Startup applies additive schema changes without deleting old meals or plans.
+Configure private R2 photo storage using [the setup guide](docs/widget-setup.md).
+The default local backend works without Cloudflare credentials for development;
+its files are served only through authenticated endpoints, never as public assets.
+Cloudflare sign-in is not required for local storage. When ready, use
+`fatties migrate-photos-to-r2 --dry-run` and then `fatties migrate-photos-to-r2`
+with R2 credentials configured to copy and verify existing photos before switching.
+
 ## Settings (`.env`)
 
 | Name | Default | Meaning |
@@ -93,6 +120,11 @@ log in, and use "Add to Home Screen".
 | `FATTIES_EFFORT` | `medium` | `low`, `medium` or `high` |
 | `FATTIES_DB` | `data/fatties.db` | SQLite file |
 | `FATTIES_TZ` | `Asia/Singapore` | decides which day a meal belongs to |
+| `FATTIES_PHOTO_STORAGE` | `local` | private `local` storage or Cloudflare `r2` |
+| `FATTIES_PHOTO_DIR` | beside the DB, `photos/` | local image/thumbnail directory |
+| `FATTIES_PUBLIC_URL` | request origin | canonical HTTPS origin for widget links |
+| `R2_ACCOUNT_ID`, `R2_BUCKET` | none | private Cloudflare R2 destination |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | none | bucket-scoped R2 S3 credentials, server only |
 
 `.env` is in `.gitignore`. Never commit a key; this repository is public.
 
@@ -116,7 +148,21 @@ US$0.03 per photo.
 ```bash
 .venv/bin/pytest -q
 .venv/bin/ruff check .
+node --test tests/*.test.cjs
 ```
+
+For the optional isolated browser test (fake analysis, temporary data, no API spend):
+
+```bash
+.venv/bin/python -m pip install -e '.[dev,ui]'
+.venv/bin/playwright install chromium
+FATTIES_UI_TESTS=1 .venv/bin/pytest -q tests/test_ui.py
+```
+
+The Scriptable tests simulate its documented native APIs. They verify cache,
+authentication failure, expiry and race behavior; they do not replace installing
+and checking the widget on an actual iPhone. iOS controls background refresh;
+the script requests a refresh after 15 minutes without promising that interval.
 
 ## Not done yet
 
@@ -125,3 +171,4 @@ US$0.03 per photo.
 - Accuracy is unmeasured. There is no set of reference meals yet.
 - No editing of a saved meal (delete and log it again), no manual entry
   without a photo, and no weight log.
+- Old meal logs have no recoverable photo and display a placeholder.

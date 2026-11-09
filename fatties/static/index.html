@@ -14,14 +14,14 @@
 <body>
   <header class="top">
     <h1>Fatties</h1>
-    <div class="who" id="who" role="radiogroup" aria-label="Who is logging"></div>
+    <div class="who" id="who"></div>
   </header>
 
   <nav class="tabs" role="tablist" hidden>
     <button role="tab" data-view="log">Log</button>
-    <button role="tab" data-view="day">Day</button>
-    <button role="tab" data-view="week">Week</button>
+    <button role="tab" data-view="track">Track</button>
     <button role="tab" data-view="targets">Plan</button>
+    <button role="tab" data-view="widget">Widget</button>
   </nav>
 
   <main>
@@ -60,23 +60,54 @@
       <div id="estimate"></div>
     </section>
 
-    <section id="view-day" class="view" hidden>
-      <div class="pager">
-        <button data-step="-1" aria-label="Previous day">‹</button>
-        <h2 id="day-label"></h2>
-        <button data-step="1" aria-label="Next day">›</button>
+    <section id="view-track" class="view" hidden>
+      <div class="row track-controls">
+        <label>Time frame
+          <select id="track-period">
+            <option value="day">Day</option><option value="week">Week</option>
+            <option value="month">Month</option><option value="year">Year</option>
+          </select>
+        </label>
+        <label>Go to date<input type="date" id="track-date" min="1900-01-01" max="2100-12-31"></label>
+        <button class="ghost" id="track-today">Today</button>
       </div>
-      <div class="pair" id="day-people"></div>
+      <div class="pager">
+        <button id="track-prev" aria-label="Previous period">‹</button>
+        <h2 id="track-label"></h2>
+        <button id="track-next" aria-label="Next period">›</button>
+      </div>
+      <p id="track-status" class="status" role="status"></p>
+      <div class="pair" id="track-people"></div>
+      <div class="card" id="track-compare" hidden></div>
     </section>
 
-    <section id="view-week" class="view" hidden>
-      <div class="pager">
-        <button data-step="-7" aria-label="Previous week">‹</button>
-        <h2 id="week-label"></h2>
-        <button data-step="7" aria-label="Next week">›</button>
-      </div>
-      <div class="pair" id="week-people"></div>
-      <div class="card" id="week-compare"></div>
+    <section id="view-meal" class="view" hidden>
+      <button class="ghost" id="meal-back">Back to Track</button>
+      <div id="meal-detail" role="status"></div>
+    </section>
+
+    <section id="view-widget" class="view" hidden>
+      <article class="card">
+        <h2>Your partner on your Home Screen</h2>
+        <p class="small">Keep using Fatties here. Install Scriptable on your iPhone to show your partner's last logged meal in a medium widget.</p>
+        <ol class="setup-steps">
+          <li><a href="https://apps.apple.com/sg/app/scriptable/id1405459188" target="_blank" rel="noopener">Install Scriptable</a>.</li>
+          <li><a href="/widgets/Fatties.js" download="Fatties.js">Download the Fatties script</a>, then share the file to Scriptable and add it. You can also copy its contents into a new script named Fatties.</li>
+          <li>Create a connection below. Run Fatties in Scriptable and paste the connection code when prompted.</li>
+          <li>Touch and hold your Home Screen, add a medium Scriptable widget, edit it, and choose the Fatties script.</li>
+        </ol>
+        <p class="small">iOS chooses refresh times. Tap the widget to open the meal's web page. Reconnect after 90 days, logging out, or changing your password.</p>
+        <div class="row">
+          <button id="widget-connect" class="primary">Create widget connection</button>
+          <button id="widget-disconnect" class="ghost">Disconnect my widgets</button>
+        </div>
+        <div id="widget-code-box" hidden>
+          <label>Private connection code — shown only here<input id="widget-code" type="password" readonly autocomplete="off"></label>
+          <button id="widget-copy" class="ghost">Copy connection code</button>
+          <p class="small">Paste only into your Fatties script. This gives read-only access to your partner's latest meal and photo.</p>
+        </div>
+        <p id="widget-status" class="status" role="status"></p>
+      </article>
     </section>
 
     <section id="view-targets" class="view" hidden>
@@ -87,6 +118,7 @@
 
   <div class="tooltip" id="tooltip" hidden></div>
   <div class="toast" id="toast" role="status" hidden></div>
+  <script src="/static/adjustments.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

@@ -31,6 +31,13 @@ class Settings:
     effort: str
     db_path: Path
     timezone: str
+    photo_storage: str = "local"
+    photo_dir: Path | None = None
+    r2_account_id: str | None = None
+    r2_bucket: str | None = None
+    r2_access_key_id: str | None = None
+    r2_secret_access_key: str | None = None
+    public_url: str | None = None
 
     @classmethod
     def load(cls, env_file: Path | None = ROOT / ".env") -> Settings:
@@ -46,4 +53,11 @@ class Settings:
             effort=env.get("FATTIES_EFFORT", "medium"),
             db_path=db_path if db_path.is_absolute() else ROOT / db_path,
             timezone=env.get("FATTIES_TZ", "Asia/Singapore"),
+            photo_storage=env.get("FATTIES_PHOTO_STORAGE", "local"),
+            photo_dir=Path(env["FATTIES_PHOTO_DIR"]).expanduser() if env.get("FATTIES_PHOTO_DIR") else None,
+            r2_account_id=env.get("R2_ACCOUNT_ID"),
+            r2_bucket=env.get("R2_BUCKET"),
+            r2_access_key_id=env.get("R2_ACCESS_KEY_ID"),
+            r2_secret_access_key=env.get("R2_SECRET_ACCESS_KEY"),
+            public_url=env.get("FATTIES_PUBLIC_URL", "").rstrip("/") or None,
         )

@@ -283,7 +283,7 @@ def test_plan_starts_today_and_leaves_earlier_days_alone(client):
 
 
 def test_plan_keeps_hand_adjusted_targets(client):
-    pid = client.get("/api/people").json()[1]["id"]
+    pid = client.get("/api/people").json()[0]["id"]
     targets = {"kcal": 1500, "carbs_g": 160, "protein_g": 100, "fat_g": 50, "sugar_g": 35}
     person = client.put(f"/api/people/{pid}/plan", json={"inputs": PLAN, "targets": targets}).json()
     assert person["plan"]["targets"] == targets
