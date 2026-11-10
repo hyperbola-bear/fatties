@@ -102,9 +102,11 @@
           <button id="widget-disconnect" class="ghost">Disconnect my widgets</button>
         </div>
         <div id="widget-code-box" hidden>
-          <label>Private connection code — shown only here<input id="widget-code" type="password" readonly autocomplete="off"></label>
-          <button id="widget-copy" class="ghost">Copy connection code</button>
-          <p class="small">Paste only into your Fatties script. This gives read-only access to your partner's latest meal and photo.</p>
+          <label for="widget-code">Private connection code — shown only here</label>
+          <textarea id="widget-code" readonly rows="3" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+          <button id="widget-copy" class="primary">Copy connection code</button>
+          <p id="widget-copy-status" class="status" role="status"></p>
+          <p class="small">Paste only into your Fatties script. This gives read-only access to your partner's latest meal and photo. If Copy doesn't work, touch and hold the code, choose Select All, then Copy.</p>
         </div>
         <p id="widget-status" class="status" role="status"></p>
       </article>

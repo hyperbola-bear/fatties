@@ -663,16 +663,29 @@ async function loadWidget() {
 function setupWidget() {
   $("widget-connect").addEventListener("click", async () => {
     $("widget-connect").disabled = true;
+    $("widget-status").textContent = "Creating a connection…";
     try {
       const code = await api("/api/widget/credentials", { method: "POST" });
       $("widget-code").value = JSON.stringify(code); $("widget-code-box").hidden = false;
-      $("widget-status").textContent = `Connection for ${code.account_name}, showing ${code.partner_name}. Copy it now, then run the Fatties script in Scriptable.`;
+      $("widget-copy-status").textContent = `Connection for ${code.account_name}, showing ${code.partner_name}. Copy it now, then run the Fatties script in Scriptable.`;
+      $("widget-status").textContent = "";
+      $("widget-code-box").scrollIntoView({ behavior: "smooth", block: "center" });
     } catch (error) { $("widget-status").textContent = error.message; }
     finally { $("widget-connect").disabled = false; }
   });
   $("widget-copy").addEventListener("click", async () => {
-    try { await navigator.clipboard.writeText($("widget-code").value); toast("Connection code copied"); }
-    catch (_) { $("widget-code").focus(); $("widget-code").select(); toast("Select and copy the connection code"); }
+    const field = $("widget-code");
+    let copied = false;
+    try { await navigator.clipboard.writeText(field.value); copied = true; }
+    catch (_) {
+      // Some iOS web views refuse the clipboard API; a selected textarea can still be copied.
+      field.focus(); field.setSelectionRange(0, field.value.length);
+      try { copied = document.execCommand("copy"); } catch (_) { copied = false; }
+    }
+    $("widget-copy-status").textContent = copied
+      ? "Copied. Open Scriptable, run Fatties and paste the code."
+      : "Couldn't copy automatically. Touch and hold the code, choose Select All, then Copy.";
+    if (copied) toast("Connection code copied");
   });
   $("widget-disconnect").addEventListener("click", async () => {
     if (!confirm("Disconnect all widgets for your account?")) return;

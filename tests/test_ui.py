@@ -5,6 +5,7 @@ It never contacts Anthropic, R2, or a production server.
 """
 
 import os
+import re
 import socket
 import threading
 import time
@@ -135,7 +136,11 @@ def test_mobile_log_track_plan_and_widget_setup(live_app):
         page.get_by_role("tab", name="Widget", exact=True).click()
         page.get_by_role("button", name="Create widget connection", exact=True).click()
         expect(page.locator("#widget-code-box")).to_be_visible()
-        assert page.locator("#widget-code").get_attribute("type") == "password"
+        code = page.locator("#widget-code").input_value()
+        assert '"token"' in code and page.locator("#widget-code").evaluate("el => el.tagName") == "TEXTAREA"
+        expect(page.locator("#widget-code-box")).to_be_in_viewport()
+        page.get_by_role("button", name="Copy connection code", exact=True).click()
+        expect(page.locator("#widget-copy-status")).to_have_text(re.compile(r"^(Copied\.|Couldn't copy automatically\.)"))
         assert len(store.widget_connections(1)) == 1
         page.get_by_role("tab", name="Plan", exact=True).click()
         expect(page.locator("#widget-code")).to_have_value("")

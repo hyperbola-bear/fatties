@@ -239,7 +239,7 @@ details.item > p { margin: 4px 0 10px; }
 .item.removed { opacity: .6; }
 .setup-steps { margin: 0; padding-left: 24px; display: grid; gap: 10px; font-size: 14px; }
 #widget-code-box { display: grid; gap: 8px; }
-#widget-code { width: 100%; }
+#widget-code { width: 100%; font: 12px/1.4 ui-monospace, Menlo, monospace; resize: none; word-break: break-all; -webkit-user-select: text; user-select: text; }
 @media (max-width: 420px) {
   .bar-row .value { white-space: normal; text-align: right; }
   .top { flex-wrap: wrap; }
