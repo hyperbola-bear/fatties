@@ -104,7 +104,7 @@ R2 storage/operation charges depend on usage.
    The credential is stored in Scriptable Keychain. If no logs exist yet, the
    preview says **No meals logged yet**.
 6. Touch and hold the iPhone Home Screen, choose **Edit → Add Widget** (wording
-   can vary by iOS version), select **Scriptable**, and add a **medium** widget.
+   can vary by iOS version), select **Scriptable**, and add a **small** or **medium** widget.
    Edit it and choose the **Fatties** script. No widget parameter is needed.
 7. Repeat on the other phone, logging into the other person's own account.
    Polar's connection shows Yeobo, and Yeobo's shows Polar. The default example

@@ -1,6 +1,6 @@
 // Fatties partner-meal widget for Scriptable. Contains no account secrets.
 // Run inside Scriptable once and paste the connection code from Fatties > Widget.
-// Then add a medium Scriptable Home Screen widget and select this script.
+// Then add a small or medium Scriptable Home Screen widget and select this script.
 // Documentation: https://docs.scriptable.app/listwidget/
 
 const fm = FileManager.local();
@@ -95,55 +95,108 @@ async function connect(previous) {
   }
 }
 
-function smallText(stack, text) {
-  const node = stack.addText(text); node.font = Font.systemFont(11);
-  node.textColor = Color.dynamic(new Color("666666"), new Color("bbbbbb")); node.lineLimit = 2;
+const muted = Color.dynamic(new Color("666666"), new Color("bbbbbb"));
+const faint = Color.dynamic(new Color("8a8a86"), new Color("8a8a86"));
+const ink = Color.dynamic(new Color("1a1a19"), new Color("ffffff"));
+
+function line(stack, text, font, color, lines) {
+  const node = stack.addText(text); node.font = font; node.textColor = color;
+  node.lineLimit = lines || 1; node.minimumScaleFactor = 0.75;
   return node;
 }
-function render(connection, cached, message) {
-  const widget = new ListWidget(); widget.setPadding(12, 12, 12, 12);
+function relative(stack, prefix, date, font, color) {
+  const row = stack.addStack(); row.layoutHorizontally(); row.centerAlignContent();
+  line(row, prefix, font, color);
+  const node = row.addDate(date); node.applyRelativeStyle(); node.font = font; node.textColor = color;
+  node.lineLimit = 1; node.minimumScaleFactor = 0.75;
+  return row;
+}
+function footer(stack, cached, message) {
+  relative(stack, message ? "Offline · Updated " : "Updated ", cached.refreshed, Font.systemFont(10), faint);
+}
+
+// Small widget with a photo: the photo fills the widget, details sit on a dark band.
+function photoTile(widget, cached, meal, message) {
+  widget.setPadding(0, 0, 0, 0);
+  widget.backgroundImage = cached.image;
+  widget.addSpacer();
+  const band = widget.addStack(); band.layoutHorizontally(); band.setPadding(18, 12, 10, 12);
+  const gradient = new LinearGradient();
+  gradient.colors = [new Color("000000", 0), new Color("000000", 0.72)]; gradient.locations = [0, 0.45];
+  band.backgroundGradient = gradient;
+  const details = band.addStack(); details.layoutVertically(); details.spacing = 1;
+  const white = new Color("ffffff"), soft = new Color("ffffff", 0.82);
+  relative(details, cached.data.partner.name + " · ", new Date(meal.logged_at), Font.systemFont(11), soft);
+  line(details, meal.title, Font.boldSystemFont(14), white, 2);
+  line(details, Math.round(meal.kcal).toLocaleString() + " kcal", Font.semiboldSystemFont(12), white);
+  if (message) line(details, "Offline", Font.systemFont(10), soft);
+  band.addSpacer();
+}
+
+// No meal, or a meal without a photo: a text card with a small icon, no empty photo box.
+function textCard(widget, cached, meal, message, roomy) {
+  widget.setPadding(14, 14, 12, 14);
+  const icon = widget.addImage(SFSymbol.named("fork.knife").image);
+  icon.imageSize = new Size(roomy ? 22 : 20, roomy ? 22 : 20); icon.tintColor = faint;
+  widget.addSpacer();
+  line(widget, cached.data.partner.name, Font.systemFont(11), muted);
+  line(widget, meal ? meal.title : "No meals logged yet", Font.boldSystemFont(roomy ? 16 : 14), ink, 2);
+  if (meal) {
+    line(widget, Math.round(meal.kcal).toLocaleString() + " kcal", Font.semiboldSystemFont(roomy ? 14 : 12), ink);
+    relative(widget, "Logged ", new Date(meal.logged_at), Font.systemFont(11), muted);
+  }
+  widget.addSpacer(6);
+  footer(widget, cached, message);
+}
+
+// Medium widget with a photo: photo on the left, details on the right.
+function photoRow(widget, cached, meal, message) {
+  widget.setPadding(12, 12, 12, 12);
+  const row = widget.addStack(); row.layoutHorizontally(); row.spacing = 12;
+  const photo = row.addStack(); photo.size = new Size(122, 122); photo.cornerRadius = 12;
+  const image = photo.addImage(cached.image); image.imageSize = new Size(122, 122); image.applyFillingContentMode();
+  const text = row.addStack(); text.layoutVertically(); text.spacing = 2;
+  line(text, cached.data.partner.name, Font.systemFont(11), muted);
+  line(text, meal.title, Font.boldSystemFont(15), ink, 2);
+  line(text, Math.round(meal.kcal).toLocaleString() + " kcal", Font.semiboldSystemFont(14), ink);
+  relative(text, "Logged ", new Date(meal.logged_at), Font.systemFont(11), muted);
+  text.addSpacer();
+  footer(text, cached, message);
+  row.addSpacer();
+}
+
+function render(connection, cached, message, family) {
+  const widget = new ListWidget();
   widget.backgroundColor = Color.dynamic(new Color("fcfcfb"), new Color("1a1a19"));
   widget.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   if (connection) widget.url = connection.origin + "/";
   if (!connection || !cached) {
-    const title = widget.addText("Fatties"); title.font = Font.boldSystemFont(17);
+    widget.setPadding(14, 14, 14, 14);
+    line(widget, "Fatties", Font.boldSystemFont(17), ink);
     widget.addSpacer(8);
-    smallText(widget, message || "Run the Fatties script in Scriptable to connect your account.");
+    line(widget, message || "Run the Fatties script in Scriptable to connect your account.", Font.systemFont(11), muted, 4);
     return widget;
   }
   const meal = cached.data.meal;
-  const row = widget.addStack(); row.layoutHorizontally(); row.centerAlignContent(); row.spacing = 12;
-  const photo = row.addStack(); photo.size = new Size(106, 110); photo.cornerRadius = 10;
-  if (cached.image && meal) {
-    const image = photo.addImage(cached.image); image.imageSize = new Size(106, 110); image.applyFillingContentMode();
-  } else {
-    photo.backgroundColor = Color.dynamic(new Color("efefec"), new Color("30302e")); photo.centerAlignContent();
-    photo.addSpacer(); const symbol = photo.addImage(SFSymbol.named("fork.knife").image); symbol.imageSize = new Size(30, 30); photo.addSpacer();
-  }
-  const text = row.addStack(); text.layoutVertically(); text.spacing = 4;
-  smallText(text, cached.data.partner.name);
-  const title = text.addText(meal ? meal.title : "No meals logged yet"); title.font = Font.boldSystemFont(15); title.lineLimit = 2;
-  if (meal) {
-    widget.url = meal.url;
-    const kcal = text.addText(Math.round(meal.kcal).toLocaleString() + " kcal"); kcal.font = Font.semiboldSystemFont(14);
-    const logged = text.addStack(); smallText(logged, "Logged ");
-    const date = logged.addDate(new Date(meal.logged_at)); date.applyRelativeStyle(); date.font = Font.systemFont(11);
-  }
-  text.addSpacer();
-  const updated = text.addStack(); smallText(updated, message ? "Offline · Updated " : "Updated ");
-  const date = updated.addDate(cached.refreshed); date.applyRelativeStyle(); date.font = Font.systemFont(10);
+  if (meal) widget.url = meal.url;
+  const small = family === "small";
+  if (meal && cached.image) small ? photoTile(widget, cached, meal, message) : photoRow(widget, cached, meal, message);
+  else textCard(widget, cached, meal, message, !small);
   return widget;
 }
 
 let connection = readConnection();
+let preview = "medium";
 if (config.runsInApp) {
   if (connection) {
     const menu = new Alert(); menu.title = "Fatties";
     menu.message = "Connected as " + connection.account_name + ", showing " + connection.partner_name + ".";
-    menu.addAction("Preview / refresh"); menu.addAction("Reconnect"); menu.addDestructiveAction("Remove connection from this phone"); menu.addCancelAction("Cancel");
+    menu.addAction("Preview medium"); menu.addAction("Preview small"); menu.addAction("Reconnect");
+    menu.addDestructiveAction("Remove connection from this phone"); menu.addCancelAction("Cancel");
     const choice = await menu.presentSheet();
-    if (choice === 1) connection = await connect(connection);
-    else if (choice === 2) { clearConnection(connection); connection = null; }
+    if (choice === 1) preview = "small";
+    else if (choice === 2) connection = await connect(connection);
+    else if (choice === 3) { clearConnection(connection); connection = null; }
   } else connection = await connect(null);
 }
 let cached = connection ? readCache(connection) : null;
@@ -160,7 +213,9 @@ if (connection) {
     }
   }
 }
-const widget = render(connection, cached, message);
+const family = config.runsInWidget ? config.widgetFamily : preview;
+const widget = render(connection, cached, message, family);
 if (config.runsInWidget) Script.setWidget(widget);
+else if (family === "small") await widget.presentSmall();
 else await widget.presentMedium();
 Script.complete();
